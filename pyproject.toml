@@ -1,0 +1,58 @@
+[project]
+name = "turbine-projections"
+version = "1.0.0"
+description = "Bayesian logistic framework for probabilistic wind turbine technology projections."
+readme = "README.md"
+license = {text = "MIT"}
+requires-python = ">=3.11"
+authors = [
+    {name = "Irene Schicker", email = "irene.schicker@geosphere.at"},
+    {name = "Stefan Janisch"},
+    {name = "Annemarie Lexer"},
+]
+keywords = [
+    "wind energy",
+    "Bayesian inference",
+    "logistic growth",
+    "technology projection",
+    "uncertainty quantification",
+    "MCMC",
+]
+dependencies = [
+    "arviz>=0.17",
+    "matplotlib",
+    "netcdf4",
+    "numpy",
+    "openpyxl",
+    "pandas",
+    "properscoring",
+    "pymc>=5.10",
+    "scipy",
+    "seaborn",
+    "xarray",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest",
+    "jupyter",
+    "nbformat",
+]
+optional = [
+    "open-mastr",
+]
+
+[project.urls]
+Repository = "https://github.com/ischicker/bayesian-turbine-projections"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
