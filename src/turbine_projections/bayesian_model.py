@@ -14,7 +14,7 @@ from turbine_projections import config
 
 LOGGER = logging.getLogger(__name__)
 
-ModelType = Literal["growth", "decay"]
+ModelType = Literal["growth", "decay", "gompertz_growth", "richards_growth"]
 
 
 def logistic_growth_numpy(t: np.ndarray, L: np.ndarray, k: np.ndarray, t0: np.ndarray, y0: np.ndarray) -> np.ndarray:
@@ -29,6 +29,27 @@ def logistic_decay_numpy(
     """Evaluate logistic decay for NumPy posterior samples."""
 
     return y_min[:, None] + L[:, None] / (1.0 + np.exp(k[:, None] * (t[None, :] - t0[:, None])))
+
+
+def gompertz_growth_numpy(t: np.ndarray, L: np.ndarray, k: np.ndarray, t0: np.ndarray, y0: np.ndarray) -> np.ndarray:
+    """Evaluate Gompertz growth for NumPy posterior samples."""
+
+    return y0[:, None] + L[:, None] * np.exp(-np.exp(-k[:, None] * (t[None, :] - t0[:, None])))
+
+
+def richards_growth_numpy(
+    t: np.ndarray,
+    L: np.ndarray,
+    k: np.ndarray,
+    t0: np.ndarray,
+    y0: np.ndarray,
+    v: np.ndarray,
+) -> np.ndarray:
+    """Evaluate generalized Richards growth for NumPy posterior samples."""
+
+    return y0[:, None] + L[:, None] / (1.0 + np.exp(-k[:, None] * (t[None, :] - t0[:, None]))) ** (
+        1.0 / v[:, None]
+    )
 
 
 def _create_prior(name: str, prior: dict[str, float]) -> pm.TensorVariable:
@@ -78,6 +99,45 @@ def build_logistic_growth_model(data: pd.DataFrame, priors: dict[str, dict], met
     return model
 
 
+def build_gompertz_growth_model(data: pd.DataFrame, priors: dict[str, dict], metric_name: str) -> pm.Model:
+    """Build a Bayesian Gompertz growth model for hub height or rotor diameter."""
+
+    years, values = _extract_xy(data, metric_name)
+    with pm.Model(coords={"obs_id": np.arange(len(values))}) as model:
+        year = pm.Data("year", years, dims="obs_id")
+        L = _create_prior("L", priors["L"])
+        k = _create_prior("k", priors["k"])
+        t0 = _create_prior("t0", priors["t0"])
+        y0 = _create_prior("y0", priors["y0"])
+        sigma = _create_prior("sigma", priors["sigma"])
+        nu = _create_prior("nu", priors["nu"])
+        mu = pm.Deterministic("mu", y0 + L * pm.math.exp(-pm.math.exp(-k * (year - t0))), dims="obs_id")
+        pm.StudentT("y_obs", nu=nu, mu=mu, sigma=sigma, observed=values, dims="obs_id")
+    return model
+
+
+def build_richards_growth_model(data: pd.DataFrame, priors: dict[str, dict], metric_name: str) -> pm.Model:
+    """Build a Bayesian generalized Richards growth model for hub height or rotor diameter."""
+
+    years, values = _extract_xy(data, metric_name)
+    with pm.Model(coords={"obs_id": np.arange(len(values))}) as model:
+        year = pm.Data("year", years, dims="obs_id")
+        L = _create_prior("L", priors["L"])
+        k = _create_prior("k", priors["k"])
+        t0 = _create_prior("t0", priors["t0"])
+        y0 = _create_prior("y0", priors["y0"])
+        v = pm.HalfNormal("v", sigma=1.0)
+        sigma = _create_prior("sigma", priors["sigma"])
+        nu = _create_prior("nu", priors["nu"])
+        mu = pm.Deterministic(
+            "mu",
+            y0 + L / (1.0 + pm.math.exp(-k * (year - t0))) ** (1.0 / v),
+            dims="obs_id",
+        )
+        pm.StudentT("y_obs", nu=nu, mu=mu, sigma=sigma, observed=values, dims="obs_id")
+    return model
+
+
 def build_logistic_decay_model(data: pd.DataFrame, priors: dict[str, dict], metric_name: str) -> pm.Model:
     """Build a Bayesian logistic decay model for specific power."""
 
@@ -95,11 +155,11 @@ def build_logistic_decay_model(data: pd.DataFrame, priors: dict[str, dict], metr
     return model
 
 
-def fit_model(model: pm.Model, mcmc_config: dict[str, int]) -> az.InferenceData:
+def fit_model(model: pm.Model, mcmc_config: dict[str, int | float | bool]) -> az.InferenceData:
     """Fit a PyMC model using NUTS and return ArviZ inference data."""
 
     with model:
-        return pm.sample(
+        trace = pm.sample(
             draws=mcmc_config["draws"],
             tune=mcmc_config["tune"],
             chains=mcmc_config["chains"],
@@ -108,6 +168,27 @@ def fit_model(model: pm.Model, mcmc_config: dict[str, int]) -> az.InferenceData:
             return_inferencedata=True,
             progressbar=True,
         )
+        if mcmc_config.get("compute_log_likelihood", True):
+            return pm.compute_log_likelihood(trace)
+        return trace
+
+
+def fit_bayesian_logistic(data: pd.DataFrame, priors: dict[str, dict], metric_name: str, mcmc_config: dict[str, int]):
+    """Fit the standard Bayesian logistic growth model."""
+
+    return fit_model(build_logistic_growth_model(data, priors, metric_name), mcmc_config)
+
+
+def fit_bayesian_gompertz(data: pd.DataFrame, priors: dict[str, dict], metric_name: str, mcmc_config: dict[str, int]):
+    """Fit the Bayesian Gompertz growth model."""
+
+    return fit_model(build_gompertz_growth_model(data, priors, metric_name), mcmc_config)
+
+
+def fit_bayesian_richards(data: pd.DataFrame, priors: dict[str, dict], metric_name: str, mcmc_config: dict[str, int]):
+    """Fit the Bayesian generalized Richards growth model."""
+
+    return fit_model(build_richards_growth_model(data, priors, metric_name), mcmc_config)
 
 
 def _posterior_samples(trace: az.InferenceData, var_name: str) -> np.ndarray:
@@ -135,6 +216,19 @@ def posterior_predictive_samples(
         if len(y0) != len(L):
             y0 = y0[: len(L)]
         return logistic_growth_numpy(years_float, L, k, t0, y0)
+    if model_type == "gompertz_growth":
+        y0 = _posterior_samples(trace, "y0")
+        if len(y0) != len(L):
+            y0 = y0[: len(L)]
+        return gompertz_growth_numpy(years_float, L, k, t0, y0)
+    if model_type == "richards_growth":
+        y0 = _posterior_samples(trace, "y0")
+        v = _posterior_samples(trace, "v")
+        if len(y0) != len(L):
+            y0 = y0[: len(L)]
+        if len(v) != len(L):
+            v = v[: len(L)]
+        return richards_growth_numpy(years_float, L, k, t0, y0, v)
     y_min = _posterior_samples(trace, "y_min")
     if len(y_min) != len(L):
         y_min = y_min[: len(L)]
@@ -197,7 +291,10 @@ def compute_derived_capacity(
 def convergence_summary(trace: az.InferenceData) -> dict[str, float]:
     """Return compact convergence diagnostics."""
 
-    summary = az.summary(trace, var_names=["L", "k", "t0", "sigma", "nu"], kind="diagnostics")
+    var_names = ["L", "k", "t0", "sigma", "nu"]
+    if "v" in trace.posterior:
+        var_names.append("v")
+    summary = az.summary(trace, var_names=var_names, kind="diagnostics")
     max_rhat = float(summary["r_hat"].max(skipna=True))
     min_ess = float(summary["ess_bulk"].min(skipna=True))
     divergences = 0

@@ -65,6 +65,7 @@ EXPECTED_TURBINE_COUNTS = {
 }
 
 RANDOM_SEED = 42
+SUBSAMPLE_SEEDS = [42, 123, 456, 789, 1011]
 
 PUBLISH_RAW_DATA = False
 
@@ -76,7 +77,7 @@ MAX_FIT_SAMPLES = 2000
 REGION_MAX_FIT_SAMPLES = {
     "AT": None,
     "DE": 5000,
-    "US": 2000,
+    "US": 5000,
 }
 
 HINDCAST_SPLITS = [2015, 2018]
@@ -92,6 +93,12 @@ WEIBULL_REFERENCE = {
     "AT": {"k": 2.0, "A": 7.5, "height": 100},
     "DE": {"k": 2.1, "A": 8.0, "height": 100},
     "US": {"k": 2.0, "A": 8.5, "height": 100},
+}
+
+SITE_PLE_ALPHA = {
+    "AT": 0.227,
+    "DE": 0.233,
+    "US": 0.186,
 }
 
 PRIOR_CONFIG = {

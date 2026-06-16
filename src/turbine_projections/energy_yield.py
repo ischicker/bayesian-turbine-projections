@@ -289,13 +289,14 @@ def propagate_energy_yield(
     year: int,
     scenario_row: pd.Series,
     technology_samples: pd.DataFrame,
-    alpha: float = 0.143,
+    alpha: float | None = None,
 ) -> pd.DataFrame:
     """Propagate technology and Weibull climate uncertainty to CF and AEP."""
 
+    alpha_value = config.SITE_PLE_ALPHA[region] if alpha is None else float(alpha)
     rows = []
     for _, sample in technology_samples.iterrows():
-        weibull_A_hub = float(scenario_row["weibull_A"]) * (float(sample["hub_height_m"]) / 100.0) ** alpha
+        weibull_A_hub = float(scenario_row["weibull_A"]) * (float(sample["hub_height_m"]) / 100.0) ** alpha_value
         cf = capacity_factor_from_weibull(
             specific_power_wm2=float(sample["specific_power_wm2"]),
             rated_power_mw_value=float(sample["rated_power_mw"]),
@@ -317,6 +318,7 @@ def propagate_energy_yield(
                 "weibull_k": float(scenario_row["weibull_k"]),
                 "weibull_A_100m": float(scenario_row["weibull_A"]),
                 "weibull_A_hub": weibull_A_hub,
+                "alpha": alpha_value,
                 "capacity_factor": cf,
                 "aep_mwh": aep_mwh,
             }
@@ -328,9 +330,11 @@ def run_energy_yield_propagation(
     gowires_climate: pd.DataFrame,
     years: list[int] | tuple[int, ...] = tuple(config.TARGET_YEARS),
     n_samples: int = 1000,
+    alpha_by_region: dict[str, float] | None = None,
 ) -> tuple[pd.DataFrame, pd.DataFrame]:
     """Run end-to-end probabilistic AEP propagation for all regions."""
 
+    alpha_by_region = config.SITE_PLE_ALPHA if alpha_by_region is None else alpha_by_region
     propagation_frames = []
     technology_cache: dict[tuple[str, int], pd.DataFrame] = {}
     for region in config.REGIONS:
@@ -339,7 +343,9 @@ def run_energy_yield_propagation(
             tech = joint_technology_samples(region, year, n_samples=n_samples)
             technology_cache[(region, year)] = tech
             for _, scenario_row in climate_region.iterrows():
-                propagation_frames.append(propagate_energy_yield(region, year, scenario_row, tech))
+                propagation_frames.append(
+                    propagate_energy_yield(region, year, scenario_row, tech, alpha=alpha_by_region[region])
+                )
     propagation = pd.concat(propagation_frames, ignore_index=True)
     summary = (
         propagation.groupby(["region", "year", "scenario"], as_index=False)
@@ -351,6 +357,7 @@ def run_energy_yield_propagation(
             aep_mwh_p5=("aep_mwh", lambda s: float(np.quantile(s, 0.05))),
             aep_mwh_p95=("aep_mwh", lambda s: float(np.quantile(s, 0.95))),
             rated_power_mw_median=("rated_power_mw", "median"),
+            alpha=("alpha", "first"),
             n_samples=("sample_id", "count"),
         )
         .sort_values(["region", "year", "scenario"])

@@ -176,7 +176,7 @@ def load_at_raw_excel(path: Path | None = None) -> pd.DataFrame:
     Returns
     -------
     pandas.DataFrame
-        Combined raw observations with original source columns.
+        Combined raw observations with Stefan's original source columns.
     """
 
     workbook = path or find_at_raw_file()
@@ -202,12 +202,12 @@ def load_at_raw_excel(path: Path | None = None) -> pd.DataFrame:
 
 
 def load_and_clean_at(path: str) -> pd.DataFrame:
-    """Load and clean Austrian wind park data from the IGW/UVP Excel workbook.
+    """Oesterreichische Windparkdaten aus Stefans Excel laden und bereinigen.
 
     Parameters
     ----------
     path:
-        Path to the Austrian IGW/UVP Excel workbook.
+        Path to Stefan's Austrian Excel workbook.
 
     Returns
     -------
