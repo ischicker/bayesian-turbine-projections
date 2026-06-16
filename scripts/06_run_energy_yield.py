@@ -123,6 +123,43 @@ def write_summary_latex(summary: pd.DataFrame) -> None:
     (config.TABLES_DIR / "energy_yield_summary.tex").write_text(latex, encoding="utf-8")
 
 
+def make_shear_comparison(ple_summary: pd.DataFrame, old_summary: pd.DataFrame) -> pd.DataFrame:
+    """Compare site-specific PLE AEP with the former fixed 1/7 exponent."""
+
+    key = ["region", "year", "scenario"]
+    baseline = old_summary[key + ["aep_mwh_median"]].rename(columns={"aep_mwh_median": "aep_median_baseline"})
+    frames = []
+    for alpha_source, frame in [("PLE", ple_summary), ("fixed_0.143", old_summary)]:
+        out = frame.copy()
+        out["alpha_source"] = alpha_source
+        out = out.merge(baseline, on=key, how="left")
+        out["delta_aep_pct"] = 100.0 * (out["aep_mwh_median"] - out["aep_median_baseline"]) / out[
+            "aep_median_baseline"
+        ]
+        frames.append(out)
+    comparison = pd.concat(frames, ignore_index=True)
+    comparison = comparison.rename(
+        columns={
+            "aep_mwh_median": "aep_median",
+            "aep_mwh_p5": "aep_p5",
+            "aep_mwh_p95": "aep_p95",
+        }
+    )
+    columns = [
+        "region",
+        "year",
+        "scenario",
+        "alpha_source",
+        "alpha",
+        "cf_median",
+        "aep_median",
+        "aep_p5",
+        "aep_p95",
+        "delta_aep_pct",
+    ]
+    return comparison[columns].sort_values(["region", "year", "scenario", "alpha_source"]).reset_index(drop=True)
+
+
 def plot_aep_violins(propagation: pd.DataFrame) -> None:
     fig, axes = plt.subplots(3, 2, figsize=(11.5, 9.5), sharey=False)
     scenarios = ["historical", "SSP2-4.5", "SSP5-8.5"]
@@ -173,7 +210,7 @@ def plot_uncertainty_decomposition(decomp: pd.DataFrame) -> None:
     ax.set_ylim(0, 1)
     ax.set_ylabel("Variance share")
     ax.grid(axis="y", alpha=0.25)
-    ax.legend(frameon=False)
+    ax.legend(facecolor="white", edgecolor="gray", framealpha=0.9)
     fig.tight_layout()
     for suffix in ["png", "pdf"]:
         fig.savefig(config.FIGURES_DIR / f"energy_yield_uncertainty_decomposition.{suffix}", dpi=300, bbox_inches="tight")
@@ -350,19 +387,20 @@ def plot_gcm_ensemble_variance(gcm: pd.DataFrame) -> None:
         gcm.loc[gcm["scenario"] == "SSP2-4.5"]
         .groupby("region", as_index=False)
         .agg(
-            var_climate_gcm=("var_climate_gcm", "first"),
+            var_climate_gcm=("var_climate_gcm_ple", "first"),
             var_climate_previous_3scenario=("var_climate_previous_3scenario", "first"),
-            climate_share_gcm=("climate_share_gcm", "first"),
+            climate_share_gcm=("climate_share_gcm_ple", "first"),
         )
     )
     fig, axes = plt.subplots(1, 2, figsize=(9.0, 4.0))
     x = np.arange(len(summary))
     width = 0.34
-    axes[0].bar(x - width / 2, summary["var_climate_previous_3scenario"], width=width, color="#6C757D", label="3 scenarios")
-    axes[0].bar(x + width / 2, summary["var_climate_gcm"], width=width, color="#457B9D", label="SSP2-4.5 GCM ensemble")
+    axes[0].bar(x - width / 2, summary["var_climate_previous_3scenario"], width=width, color="#6C757D", label="3 scenarios\n(PLE)")
+    axes[0].bar(x + width / 2, summary["var_climate_gcm"], width=width, color="#457B9D", label="SSP2-4.5 GCM\nensemble (PLE)")
     axes[0].set_xticks(x)
     axes[0].set_xticklabels(summary["region"])
     axes[0].set_ylabel("Climate variance [MWh²/a²]")
+    axes[0].set_ylim(0, 1.4e7)
     axes[0].grid(axis="y", alpha=0.25)
     axes[0].legend(frameon=False)
 
@@ -475,9 +513,19 @@ def main() -> None:
     plot_weibull_pdfs(summary)
 
     propagation, energy_summary = run_energy_yield_propagation(output, n_samples=args.n_samples)
+    fixed_alpha = {region: 0.143 for region in config.REGIONS}
+    propagation_fixed, energy_summary_fixed = run_energy_yield_propagation(
+        output,
+        n_samples=args.n_samples,
+        alpha_by_region=fixed_alpha,
+    )
+    shear_comparison = make_shear_comparison(energy_summary, energy_summary_fixed)
     decomp = uncertainty_decomposition(propagation, year=2055)
     propagation.to_csv(config.PROCESSED_DATA_DIR / "energy_yield_propagation_samples.csv", index=False)
     energy_summary.to_csv(config.TABLES_DIR / "energy_yield_summary.csv", index=False)
+    energy_summary.to_csv(config.TABLES_DIR / "energy_yield_summary_ple.csv", index=False)
+    energy_summary_fixed.to_csv(config.TABLES_DIR / "energy_yield_summary_alpha0143.csv", index=False)
+    shear_comparison.to_csv(config.TABLES_DIR / "energy_yield_shear_comparison.csv", index=False)
     decomp.to_csv(config.TABLES_DIR / "energy_yield_uncertainty_decomposition.csv", index=False)
     write_summary_latex(energy_summary)
     plot_aep_violins(propagation)
@@ -491,6 +539,7 @@ def main() -> None:
 
     LOGGER.info("=== GOWIRES Wind Climate ===\n%s", output.to_string(index=False))
     LOGGER.info("=== Energy Yield Summary ===\n%s", energy_summary.to_string(index=False))
+    LOGGER.info("=== Energy Yield Shear Comparison ===\n%s", shear_comparison.to_string(index=False))
     LOGGER.info("=== Energy Yield Variance Decomposition ===\n%s", decomp.to_string(index=False))
     LOGGER.info("=== Power Law Sensitivity ===\n%s", power_law.to_string(index=False))
     LOGGER.info("=== Correlation Sensitivity ===\n%s", correlation.to_string(index=False))

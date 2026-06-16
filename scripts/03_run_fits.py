@@ -294,6 +294,7 @@ def plot_region_fit(region: str, data: pd.DataFrame, traces: dict[str, az.Infere
         column = config.METRIC_COLUMNS[metric]
         model_type = config.PRIOR_CONFIG[region][metric]["model_type"]
         samples = posterior_predictive_samples(traces[metric], model_type, years_plot, max_samples=1000)
+        ax.axvline(2015, ls="--", color="gray", lw=1.5, alpha=0.7, zorder=1)
         ax.scatter(data["year"], data[column], s=7, color=color, alpha=0.15, edgecolors="none")
         ax.plot(years_plot, np.median(samples, axis=0), color="black", linewidth=2)
         ax.fill_between(
@@ -307,7 +308,8 @@ def plot_region_fit(region: str, data: pd.DataFrame, traces: dict[str, az.Infere
         ax.set_ylabel(config.METRIC_LABELS[column])
         ax.grid(alpha=0.25)
     fig.tight_layout()
-    fig.savefig(config.FIGURES_DIR / f"bayesian_fit_{region.lower()}.png", dpi=300, bbox_inches="tight")
+    for suffix in ["png", "pdf"]:
+        fig.savefig(config.FIGURES_DIR / f"bayesian_fit_{region.lower()}.{suffix}", dpi=300, bbox_inches="tight")
     plt.close(fig)
 
 
@@ -325,6 +327,7 @@ def plot_comparison(regions: list[str]) -> None:
             model_type = config.PRIOR_CONFIG[region][metric]["model_type"]
             samples = posterior_predictive_samples(trace, model_type, years_plot, max_samples=700)
             ax = axes[row, col]
+            ax.axvline(2015, ls="--", color="gray", lw=1.5, alpha=0.7, zorder=1)
             ax.scatter(
                 data["year"],
                 data[column],
@@ -347,7 +350,8 @@ def plot_comparison(regions: list[str]) -> None:
                 ax.set_ylabel(region)
             ax.grid(alpha=0.25)
     fig.tight_layout()
-    fig.savefig(config.FIGURES_DIR / "bayesian_fit_comparison.png", dpi=300, bbox_inches="tight")
+    for suffix in ["png", "pdf"]:
+        fig.savefig(config.FIGURES_DIR / f"bayesian_fit_comparison.{suffix}", dpi=300, bbox_inches="tight")
     plt.close(fig)
 
 

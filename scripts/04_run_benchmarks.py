@@ -87,7 +87,15 @@ def write_latex_table(results: pd.DataFrame) -> None:
 def plot_hindcast(predictions: pd.DataFrame) -> None:
     split = config.PRIMARY_HINDCAST_TRAIN_END
     pred = predictions.loc[predictions["split_year"] == split].copy()
-    fig, axes = plt.subplots(3, 3, figsize=(14, 10), sharex=False)
+    font_config = {
+        "axes.titlesize": 14,
+        "axes.labelsize": 13,
+        "xtick.labelsize": 11,
+        "ytick.labelsize": 11,
+        "legend.fontsize": 11,
+    }
+    with plt.rc_context(font_config):
+        fig, axes = plt.subplots(3, 3, figsize=(14, 10), sharex=False)
     for row, region in enumerate(config.REGIONS):
         data = load_region_data(region)
         for col, metric in enumerate(config.METRICS):
@@ -130,13 +138,22 @@ def plot_hindcast(predictions: pd.DataFrame) -> None:
                     )
             ax.axvline(split + 0.5, color="#333333", linewidth=0.8, alpha=0.6)
             if row == 0:
-                ax.set_title(metric.replace("_", " ").title())
+                ax.set_title(metric.replace("_", " ").title(), fontsize=14)
             if col == 0:
-                ax.set_ylabel(region)
+                ax.set_ylabel(region, fontsize=13)
+            ax.tick_params(axis="both", labelsize=11)
             ax.grid(alpha=0.25)
     handles, labels = axes[0, 0].get_legend_handles_labels()
-    fig.legend(handles, labels, loc="lower center", ncol=5, frameon=False)
-    fig.tight_layout(rect=(0, 0.05, 1, 1))
+    fig.legend(
+        handles,
+        labels,
+        loc="lower center",
+        bbox_to_anchor=(0.5, 0.015),
+        ncol=5,
+        frameon=False,
+        fontsize=11,
+    )
+    fig.tight_layout(rect=(0, 0.10, 1, 1))
     for suffix in ["png", "pdf"]:
         fig.savefig(config.FIGURES_DIR / f"hindcast_benchmark.{suffix}", dpi=300, bbox_inches="tight")
     plt.close(fig)
